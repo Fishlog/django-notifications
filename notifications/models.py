@@ -167,12 +167,16 @@ class Notification(models.Model):
     LEVELS = Choices('success', 'info', 'warning', 'error')
     level = models.CharField(choices=LEVELS, default=LEVELS.info, max_length=20)
 
-    recipient = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        blank=False,
+    recipient_content_type = models.ForeignKey(
+        ContentType,
         related_name='notifications',
+        blank=True,
+        null=True,
         on_delete=models.CASCADE
     )
+    recipient_object_id = models.CharField(max_length=255, blank=True, null=True)
+    recipient = GenericForeignKey('recipient_content_type', 'recipient_object_id')
+
     unread = models.BooleanField(default=True, blank=False, db_index=True)
 
     actor_content_type = models.ForeignKey(ContentType, related_name='notify_actor', on_delete=models.CASCADE)

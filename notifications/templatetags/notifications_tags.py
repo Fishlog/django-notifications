@@ -1,10 +1,14 @@
 ''' Django notifications template tags file '''
 # -*- coding: utf-8 -*-
+import warnings
 from distutils.version import StrictVersion  # pylint: disable=no-name-in-module,import-error
 
 from django import get_version
 from django.template import Library
 from django.utils.html import format_html
+from django.contrib.contenttypes.models import ContentType
+
+from notifications.models import Notification
 
 try:
     from django.urls import reverse
@@ -14,23 +18,26 @@ except ImportError:
 register = Library()
 
 
-def notifications_unread(context):
-    user = user_context(context)
-    if not user:
-        return ''
-    return user.notifications.unread().count()
+def notifications_unread_fn(context, recipient=None):
+    recip = recipient or user_context(context)
+    return Notification.objects.filter(
+        recipient_content_type_id=ContentType.objects.get_for_model(recip).id,
+        recipient_object_id=recip.id).unread().count()
 
 
 if StrictVersion(get_version()) >= StrictVersion('2.0'):
-    notifications_unread = register.simple_tag(takes_context=True)(notifications_unread)  # pylint: disable=invalid-name
+    register.simple_tag(name='notifications_unread', takes_context=True)(notifications_unread_fn)  # pylint: disable=invalid-name
 else:
-    notifications_unread = register.assignment_tag(takes_context=True)(notifications_unread)  # noqa
+    register.assignment_tag(name='notifications_unread', takes_context=True)(notifications_unread_fn)  # pylint: disable=invalid-name
 
 
 @register.filter
 def has_notification(user):
-    if user:
-        return user.notifications.unread().exists()
+    recip = user
+    if recip:
+        return Notification.objects.filter(
+            recipient_content_type_id=ContentType.objects.get_for_model(recip).id,
+            recipient_object_id=recip.id).unread().exists()
     return False
 
 
@@ -76,13 +83,13 @@ def register_notify_callbacks(badge_class='live_notify_badge',  # pylint: disabl
 
 
 @register.simple_tag(takes_context=True)
-def live_notify_badge(context, badge_class='live_notify_badge'):
-    user = user_context(context)
-    if not user:
+def live_notify_badge(context, badge_class='live_notify_badge', recipient=None):
+    recip = recipient or user_context(context)
+    if not recip:
         return ''
 
     html = "<span class='{badge_class}'>{unread}</span>".format(
-        badge_class=badge_class, unread=user.notifications.unread().count()
+        badge_class=badge_class, unread=notifications_unread_fn(context, recipient)
     )
     return format_html(html)
 
