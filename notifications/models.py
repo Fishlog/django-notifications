@@ -12,7 +12,11 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import models
 from django.db.models.query import QuerySet
 from django.utils import timezone
+from django.utils.html import escape
+from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 from django.utils.six import text_type
+from django.utils.translation import gettext as _
 from model_utils import Choices
 from notifications import settings as notifications_settings
 from notifications.signals import notify
@@ -215,23 +219,52 @@ class Notification(models.Model):
         app_label = 'notifications'
 
     def __unicode__(self):
-        ctx = {
+        return self.sentence.format(**self.ctx)
+
+    def __str__(self):  # Adds support for Python 3
+        return self.__unicode__()
+
+    @property
+    def sentence(self):
+        if '{' in self.verb and '}' in self.verb:
+            return _(self.verb)
+        if self.target:
+            if self.action_object:
+                return '{actor} {verb} {action_object} on {target}'
+            return '{actor} {verb} {target}'
+        if self.action_object:
+            return '{actor} {verb} {action_object}'
+        return '{actor} {verb}'
+
+    @property
+    def ctx(self):
+        return {
+            'sender': self.actor,
             'actor': self.actor,
             'verb': self.verb,
             'action_object': self.action_object,
             'target': self.target,
             'timesince': self.timesince()
         }
-        if self.target:
-            if self.action_object:
-                return u'%(actor)s %(verb)s %(action_object)s on %(target)s %(timesince)s ago' % ctx
-            return u'%(actor)s %(verb)s %(target)s %(timesince)s ago' % ctx
-        if self.action_object:
-            return u'%(actor)s %(verb)s %(action_object)s %(timesince)s ago' % ctx
-        return u'%(actor)s %(verb)s %(timesince)s ago' % ctx
 
-    def __str__(self):  # Adds support for Python 3
-        return self.__unicode__()
+    @property
+    def html_ctx(self):
+        def linked(obj):
+            if hasattr(obj, 'get_absolute_url'):
+                return format_html('<a href="{url}">{text}</a>', url=obj.get_absolute_url(), text=obj)
+            return obj
+        return {
+            'sender': linked(self.actor),
+            'actor': linked(self.actor),
+            'verb': self.verb,
+            'action_object': linked(self.action_object),
+            'target': linked(self.target),
+            'timesince': self.timesince()
+        }
+
+    def html_text(self):
+        return mark_safe(self.sentence.format(**self.html_ctx))
+            
 
     def timesince(self, now=None):
         """
@@ -239,7 +272,7 @@ class Notification(models.Model):
         current timestamp.
         """
         from django.utils.timesince import timesince as timesince_
-        return timesince_(self.timestamp, now)
+        return '{} ago'.format(timesince_(self.timestamp, now))
 
     @property
     def slug(self):
@@ -295,7 +328,7 @@ def notify_handler(verb, **kwargs):
             timestamp=timestamp,
             level=level,
         )
-
+        
         # Set optional objects
         for obj, opt in optional_objs:
             if obj is not None:
